@@ -62,7 +62,7 @@ if ( NODEJS ) {
 var PptxGenJS = function(){
 	// CONSTANTS
 	var APP_VER = "1.8.0-beta";
-	var APP_REL = "20170814";
+	var APP_REL = "20170820";
 	//
 	var MASTER_OBJECTS = {
 		'chart': { name:'chart' },
@@ -1253,9 +1253,20 @@ var PptxGenJS = function(){
 					strXml += '  <c:majorTickMark val="out"/>';
 					strXml += '  <c:minorTickMark val="none"/>';
 					strXml += '  <c:tickLblPos val="'+ (rel.opts.catAxisLabelPos || rel.opts.barDir == 'col' ? 'low' : 'nextTo') +'"/>';
-					strXml += '  <c:spPr>';
-					strXml += '    <a:ln w="12700" cap="flat"><a:solidFill><a:srgbClr val="888888"/></a:solidFill><a:prstDash val="solid"/><a:round/></a:ln>';
-					strXml += '  </c:spPr>';
+					strXml += ' <c:spPr>';
+					strXml += '   <a:ln w="12700" cap="flat">';
+					if ( !!rel.opts.catAxisLineShow || typeof rel.opts.catAxisLineShow === 'undefined' ) {
+						strXml += '<a:solidFill>';
+						strXml += '  <a:srgbClr val="'+ (rel.opts.axisLineColor ? rel.opts.axisLineColor : DEF_CHART_GRIDLINE.color) +'"/>';
+						strXml += '</a:solidFill>';
+					}
+					else {
+						strXml += '<a:noFill/>';
+					}
+					strXml += '     <a:prstDash val="solid"/>';
+					strXml += '     <a:round/>';
+					strXml += '   </a:ln>';
+					strXml += ' </c:spPr>';
 					strXml += '  <c:txPr>';
 					strXml += '    <a:bodyPr/>';  // don't specify rot 0 so we get the auto behavior
 					strXml += '    <a:lstStyle/>';
@@ -1308,14 +1319,13 @@ var PptxGenJS = function(){
 					strXml += ' <c:tickLblPos val="'+ (rel.opts.barDir == 'col' ? 'nextTo' : 'low') +'"/>';
 					strXml += ' <c:spPr>';
 					strXml += '   <a:ln w="12700" cap="flat">';
-
-					var showAxis = !!rel.opts.valAxisLineShow || rel.opts.valAxisLineShow === undefined;
-					if (!showAxis) {
-						strXml += '     <a:noFill/>';
-					} else {
-						strXml += '     <a:solidFill>';
-						strXml += '       <a:srgbClr val="'+(rel.opts.axisLineColor ? rel.opts.axisLineColor : "888888")+'"/>';
-						strXml += '     </a:solidFill>';
+					if ( !!rel.opts.valAxisLineShow || typeof rel.opts.valAxisLineShow === 'undefined' ) {
+						strXml += '<a:solidFill>';
+						strXml += '  <a:srgbClr val="'+ (rel.opts.axisLineColor ? rel.opts.axisLineColor : DEF_CHART_GRIDLINE.color) +'"/>';
+						strXml += '</a:solidFill>';
+					}
+					else {
+						strXml += '<a:noFill/>';
 					}
 					strXml += '     <a:prstDash val="solid"/>';
 					strXml += '     <a:round/>';
@@ -2543,12 +2553,11 @@ var PptxGenJS = function(){
 		if ( inSlide.slideNumberObj || inSlide.hasSlideNumber ) {
 			if ( !inSlide.slideNumberObj ) inSlide.slideNumberObj = { x:0.3, y:'90%' }
 
-			// TODO: FIXME: page numbers over 99 wrap in PPT-2013 (Desktop)
 			strSlideXml += '<p:sp>'
 				+ '  <p:nvSpPr>'
 				+ '  <p:cNvPr id="25" name="Shape 25"/><p:cNvSpPr/><p:nvPr><p:ph type="sldNum" sz="quarter" idx="4294967295"/></p:nvPr></p:nvSpPr>'
 				+ '  <p:spPr>'
-				+ '    <a:xfrm><a:off x="'+ getSmartParseNumber(inSlide.slideNumberObj.x, 'X') +'" y="'+ getSmartParseNumber(inSlide.slideNumberObj.y, 'Y') +'"/><a:ext cx="400000" cy="300000"/></a:xfrm>'
+				+ '    <a:xfrm><a:off x="'+ getSmartParseNumber(inSlide.slideNumberObj.x, 'X') +'" y="'+ getSmartParseNumber(inSlide.slideNumberObj.y, 'Y') +'"/><a:ext cx="800000" cy="300000"/></a:xfrm>'
 				+ '    <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>'
 				+ '    <a:extLst>'
 				+ '      <a:ext uri="{C572A759-6A51-4108-AA02-DFA0A04FC94B}"><ma14:wrappingTextBoxFlag val="0" xmlns:ma14="http://schemas.microsoft.com/office/mac/drawingml/2011/main"/></a:ext>'
