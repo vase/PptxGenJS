@@ -62,7 +62,7 @@ if ( NODEJS ) {
 var PptxGenJS = function(){
 	// CONSTANTS
 	var APP_VER = "1.8.0-beta";
-	var APP_REL = "20170820";
+	var APP_REL = "20170821";
 	//
 	var MASTER_OBJECTS = {
 		'chart': { name:'chart' },
@@ -112,12 +112,15 @@ var PptxGenJS = function(){
 	var CRLF = '\r\n'; // AKA: Chr(13) & Chr(10)
 	var EMU = 914400;  // One (1) inch (OfficeXML measures in EMU (English Metric Units))
 	var ONEPT = 12700; // One (1) point (pt)
+	var JSZIP_OUTPUT_TYPES = ['arraybuffer', 'base64', 'binarystring', 'blob', 'nodebuffer', 'uint8array']; /** @see https://stuk.github.io/jszip/documentation/api_jszip/generate_async.html */
 	//
 	var DEF_CELL_MARGIN_PT = [3, 3, 3, 3]; // TRBL-style
 	var DEF_FONT_SIZE = 12;
 	var DEF_FONT_TITLE_SIZE = 18;
 	var DEF_SLIDE_MARGIN_IN = [0.5, 0.5, 0.5, 0.5]; // TRBL-style
 	var DEF_CHART_GRIDLINE = { color: "888888", style: "solid", size: 1 };
+	var DEF_LINE_SHADOW = { type: 'outer', blur: 3, offset: (23000 / 12700), angle: 90, color: '000000', opacity: 0.35, rotateWithShape: true };
+	var DEF_TEXT_SHADOW = { type: 'outer', blur: 8, offset: 4, angle: 270, color: '000000', opacity: 0.75 };
 
 	// A: Create internal pptx object
 	var gObjPptx = {};
@@ -158,7 +161,7 @@ var PptxGenJS = function(){
 	/**
 	 * DESC: Export the .pptx file
 	 */
-	function doExportPresentation(callback) {
+	function doExportPresentation(callback, outputType) {
 		var arrChartPromises = [];
 		var intSlideNum = 0, intRels = 0;
 
@@ -456,7 +459,10 @@ var PptxGenJS = function(){
 		Promise.all( arrChartPromises )
 		.then(function(arrResults){
 			var strExportName = ((gObjPptx.fileName.toLowerCase().indexOf('.ppt') > -1) ? gObjPptx.fileName : gObjPptx.fileName+gObjPptx.fileExtn);
-			if ( NODEJS ) {
+			if ( outputType && JSZIP_OUTPUT_TYPES.indexOf(outputType) >= 0) {
+				zip.generateAsync({ type:outputType }).then(callback);
+			}
+			else if ( NODEJS ) {
 				if ( callback ) {
 					if ( strExportName.indexOf('http') == 0 ) {
 						zip.generateAsync({type:'nodebuffer'}).then(function(content){ callback(content); });
@@ -945,37 +951,29 @@ var PptxGenJS = function(){
 	}
 
 	/**
-	 * Checks grid line properties and correct them if needed.
-	 * @param {Object} glOpts chart.gridLine options
+	 * NOTE: Used by both: text and lineChart
+	 * Creates `a:innerShdw` or `a:outerShdw` depending on pass options `opts`.
+	 * @param {Object} opts optional shadow properties
+	 * @param {Object} defaults defaults for unspecified properties in `opts`
+	 * @see http://officeopenxml.com/drwSp-effects.php
 	 */
-	function correctGridLineOptions(glOpts) {
-		if ( !glOpts || glOpts === 'none' ) return;
-		if ( glOpts.size !== undefined && (isNaN(Number(glOpts.size)) || glOpts.size <= 0) ) {
-			console.warn('Warning: chart.gridLine.size must be greater than 0.');
-			delete glOpts.size; // delete prop to used defaults
-		}
-		if ( glOpts.style && ['solid', 'dash', 'dot'].indexOf(glOpts.style) < 0 ) {
-			console.warn('Warning: chart.gridLine.style options: `solid`, `dash`, `dot`.');
-			delete glOpts.style;
-		}
-	}
+	function createShadowElement(opts, defaults) {
+		var type            = ( opts.type            || defaults.type    ),
+			blur            = ( opts.blur            || defaults.blur    ) * ONEPT,
+			offset          = ( opts.offset          || defaults.offset  ) * ONEPT,
+			angle           = ( opts.angle           || defaults.angle   ) * 60000,
+			color           = ( opts.color           || defaults.color   ),
+			opacity         = ( opts.opacity         || defaults.opacity ) * 100000,
+			rotateWithShape = ( opts.rotateWithShape || defaults.rotateWithShape || 0),
+			strXml  = "";
 
-	/**
-	 * @param {Object} glOpts {size, color, style}
-	 * @param {Object} defaults {size, color, style}
-	 * @param {String} type "major"(default) | "minor"
-	 */
-	function createGridLineElement(glOpts, defaults, type) {
-		type = type || 'major';
-		var tagName = 'c:'+ type + 'Gridlines';
-		strXml =  '<'+ tagName + '>';
-		strXml += ' <c:spPr>';
-		strXml += '  <a:ln w="' + Math.round((glOpts.size || defaults.size) * ONEPT) +'" cap="flat">';
-		strXml += '  <a:solidFill><a:srgbClr val="' + (glOpts.color || defaults.color) + '"/></a:solidFill>'; // should accept scheme colors as implemented in PR 135
-		strXml += '   <a:prstDash val="' + (glOpts.style || defaults.style) + '"/><a:round/>';
-		strXml += '  </a:ln>';
-		strXml += ' </c:spPr>';
-		strXml += '</'+ tagName + '>';
+		strXml += '<a:'+ type +'Shdw sx="100000" sy="100000" kx="0" ky="0" ';
+		strXml += ' algn="bl" rotWithShape="'+ (+rotateWithShape) +'" blurRad="'+ blur +'" ';
+		strXml += ' dist="'+ offset +'" dir="'+ angle +'">';
+		strXml += '<a:srgbClr val="'+ color +'">'; // TODO: should accept scheme colors implemented in Issue #135
+		strXml += '<a:alpha val="'+ opacity +'"/></a:srgbClr>'
+		strXml += '</a:'+ type +'Shdw>';
+
 		return strXml;
 	}
 
@@ -996,6 +994,9 @@ var PptxGenJS = function(){
 	* @see: http://www.datypic.com/sc/ooxml/s-dml-chart.xsd.html
 	*/
 	function makeXmlCharts(rel) {
+		/**
+		 * DESC: Calc and return excel column name (eg: 'A2')
+		 */
 		function getExcelColName(length) {
 			var strName = '';
 
@@ -1009,6 +1010,27 @@ var PptxGenJS = function(){
 
 			return strName;
 		}
+
+		/**
+		 * @param {Object} glOpts {size, color, style}
+		 * @param {Object} defaults {size, color, style}
+		 * @param {String} type "major"(default) | "minor"
+		 */
+		function createGridLineElement(glOpts, defaults, type) {
+			type = type || 'major';
+			var tagName = 'c:'+ type + 'Gridlines';
+			strXml =  '<'+ tagName + '>';
+			strXml += ' <c:spPr>';
+			strXml += '  <a:ln w="' + Math.round((glOpts.size || defaults.size) * ONEPT) +'" cap="flat">';
+			strXml += '  <a:solidFill><a:srgbClr val="' + (glOpts.color || defaults.color) + '"/></a:solidFill>'; // should accept scheme colors as implemented in PR 135
+			strXml += '   <a:prstDash val="' + (glOpts.style || defaults.style) + '"/><a:round/>';
+			strXml += '  </a:ln>';
+			strXml += ' </c:spPr>';
+			strXml += '</'+ tagName + '>';
+			return strXml;
+		}
+
+		/* ----------------------------------------------------------------------- */
 
 		// STEP 1: Create chart
 		var strXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
@@ -1102,11 +1124,11 @@ var PptxGenJS = function(){
 					else if ( rel.opts.dataBorder ) {
 						strXml += '<a:ln w="'+ (rel.opts.dataBorder.pt * ONEPT) +'" cap="flat"><a:solidFill><a:srgbClr val="'+ rel.opts.dataBorder.color +'"/></a:solidFill><a:prstDash val="solid"/><a:round/></a:ln>';
 					}
-					strXml += '    <a:effectLst>';
-					strXml += '      <a:outerShdw sx="100000" sy="100000" kx="0" ky="0" algn="tl" rotWithShape="1" blurRad="38100" dist="23000" dir="5400000">';
-					strXml += '        <a:srgbClr val="000000"><a:alpha val="35000"/></a:srgbClr>';
-					strXml += '      </a:outerShdw>';
-					strXml += '    </a:effectLst>';
+					if ( rel.opts.lineShadow !== 'none' ) {
+						strXml += '<a:effectLst>';
+						strXml += createShadowElement(rel.opts.lineShadow || {}, DEF_LINE_SHADOW);
+						strXml += '</a:effectLst>';
+					}
 					strXml += '  </c:spPr>';
 
 					// LINE CHART ONLY: `marker`
@@ -2423,20 +2445,8 @@ var PptxGenJS = function(){
 
 					// EFFECTS > SHADOW: REF: @see http://officeopenxml.com/drwSp-effects.php
 					if ( slideObj.options.shadow ) {
-						slideObj.options.shadow.type    = ( slideObj.options.shadow.type    || 'outer' );
-						slideObj.options.shadow.blur    = ( slideObj.options.shadow.blur    || 8 ) * ONEPT;
-						slideObj.options.shadow.offset  = ( slideObj.options.shadow.offset  || 4 ) * ONEPT;
-						slideObj.options.shadow.angle   = ( slideObj.options.shadow.angle   || 270 ) * 60000;
-						slideObj.options.shadow.color   = ( slideObj.options.shadow.color   || '000000' );
-						slideObj.options.shadow.opacity = ( slideObj.options.shadow.opacity || 0.75 ) * 100000;
-
 						strSlideXml += '<a:effectLst>';
-						strSlideXml += '<a:'+ slideObj.options.shadow.type +'Shdw sx="100000" sy="100000" kx="0" ky="0" ';
-						strSlideXml += ' algn="bl" rotWithShape="0" blurRad="'+ slideObj.options.shadow.blur +'" ';
-						strSlideXml += ' dist="'+ slideObj.options.shadow.offset +'" dir="'+ slideObj.options.shadow.angle +'">';
-						strSlideXml += '<a:srgbClr val="'+ slideObj.options.shadow.color +'">';
-						strSlideXml += '<a:alpha val="'+ slideObj.options.shadow.opacity +'"/></a:srgbClr>'
-						strSlideXml += '</a:outerShdw>';
+						strSlideXml += createShadowElement(slideObj.options.shadow, DEF_TEXT_SHADOW);
 						strSlideXml += '</a:effectLst>';
 					}
 
@@ -2911,7 +2921,7 @@ var PptxGenJS = function(){
 	 * Export the Presentation to an .pptx file
 	 * @param {string} [inStrExportName] - Filename to use for the export
 	 */
-	this.save = function save(inStrExportName, callback) {
+	this.save = function save(inStrExportName, callback, outputType) {
 		var intRels = 0, arrRelsDone = [];
 
 		// STEP 1: Set export title (if any)
@@ -2945,7 +2955,7 @@ var PptxGenJS = function(){
 		});
 
 		// STEP 3: Export now if there's no images to encode (otherwise, last async imgConvert call above will call exportFile)
-		if ( intRels == 0 ) doExportPresentation(callback);
+		if ( intRels == 0 ) doExportPresentation(callback, outputType);
 	};
 
 	/**
@@ -2958,6 +2968,44 @@ var PptxGenJS = function(){
 		var slideNum = gObjPptx.slides.length;
 		var slideObjNum = 0;
 		var pageNum  = (slideNum + 1);
+
+		/**
+		 * Checks shadow options passed by user and performs corrections if needed.
+		 * @param {Object} shadowOpts
+		 */
+		function correctShadowOptions(shadowOpts) {
+			if ( !shadowOpts || shadowOpts === 'none' ) return;
+
+			// OPT: `type`
+			if ( shadowOpts.type != 'outer' && shadowOpts.type != 'inner' ) {
+				console.warn('Warning: shadow.type options are `outer` or `inner`.');
+				shadowOpts.type = 'outer';
+			}
+
+			// OPT: `angle`
+			if ( shadowOpts.angle ) {
+				// A: REALITY-CHECK
+				if ( isNaN(Number(shadowOpts.angle)) || shadowOpts.angle < 0 || shadowOpts.angle > 359 ) {
+					console.warn('Warning: shadow.angle can only be 0-359');
+					shadowOpts.angle = 270;
+				}
+
+				// B: ROBUST: Cast any type of valid arg to int: '12', 12.3, etc. -> 12
+				shadowOpts.angle = Math.round(Number(shadowOpts.angle));
+			}
+
+			// OPT: `opacity`
+			if ( shadowOpts.opacity ) {
+				// A: REALITY-CHECK
+				if ( isNaN(Number(shadowOpts.opacity)) || shadowOpts.opacity < 0 || shadowOpts.opacity > 1 ) {
+					console.warn('Warning: shadow.opacity can only be 0-1');
+					shadowOpts.opacity = 0.75;
+				}
+
+				// B: ROBUST: Cast any type of valid arg to int: '12', 12.3, etc. -> 12
+				shadowOpts.opacity = Number(shadowOpts.opacity)
+			}
+		}
 
 		// A: Add this SLIDE to PRESENTATION, Add default values as well
 		gObjPptx.slides[slideNum] = {};
@@ -3013,6 +3061,18 @@ var PptxGenJS = function(){
 		slideObj.addChart = function ( inType, inData, inOpt ) {
 			var intRels = 1;
 			var options = ( inOpt && typeof inOpt === 'object' ? inOpt : {} );
+
+			function correctGridLineOptions(glOpts) {
+				if ( !glOpts || glOpts === 'none' ) return;
+				if ( glOpts.size !== undefined && (isNaN(Number(glOpts.size)) || glOpts.size <= 0) ) {
+					console.warn('Warning: chart.gridLine.size must be greater than 0.');
+					delete glOpts.size; // delete prop to used defaults
+				}
+				if ( glOpts.style && ['solid', 'dash', 'dot'].indexOf(glOpts.style) < 0 ) {
+					console.warn('Warning: chart.gridLine.style options: `solid`, `dash`, `dot`.');
+					delete glOpts.style;
+				}
+			}
 
 			// STEP 1: TODO: check for reqd fields, correct type, etc
 			// inType in CHART_TYPES
@@ -3072,6 +3132,10 @@ var PptxGenJS = function(){
 			options.catGridLine = options.catGridLine || 'none';
 			correctGridLineOptions(options.catGridLine);
 			correctGridLineOptions(options.valGridLine);
+
+			if ( options.type === 'line' ) {
+				correctShadowOptions(options.lineShadow);
+			}
 
 			// C: Options: plotArea
 			options.showLabel   = (options.showLabel   == true || options.showLabel   == false ? options.showLabel   : false);
@@ -3493,37 +3557,7 @@ var PptxGenJS = function(){
 			if ( opt.align  ) opt.align  = opt.align.toLowerCase().replace(/^c.*/i,'center').replace(/^m.*/i,'center').replace(/^l.*/i,'left').replace(/^r.*/i,'right');
 
 			// ROBUST: Set rational values for some shadow props if needed
-			if ( opt.shadow ) {
-				// OPT: `type`
-				if ( opt.shadow.type != 'outer' && opt.shadow.type != 'inner' ) {
-					console.warn('Warning: shadow.type options are `outer` or `inner`.');
-					opt.shadow.type = 'outer';
-				}
-
-				// OPT: `angle`
-				if ( opt.shadow.angle ) {
-					// A: REALITY-CHECK
-					if ( isNaN(Number(opt.shadow.angle)) || opt.shadow.angle < 0 || opt.shadow.angle > 359 ) {
-						console.warn('Warning: shadow.angle can only be 0-359');
-						opt.shadow.angle = 270;
-					}
-
-					// B: ROBUST: Cast any type of valid arg to int: '12', 12.3, etc. -> 12
-					opt.shadow.angle = Math.round(Number(opt.shadow.angle));
-				}
-
-				// OPT: `opacity`
-				if ( opt.shadow.opacity ) {
-					// A: REALITY-CHECK
-					if ( isNaN(Number(opt.shadow.opacity)) || opt.shadow.opacity < 0 || opt.shadow.opacity > 1 ) {
-						console.warn('Warning: shadow.opacity can only be 0-1');
-						opt.shadow.opacity = 0.75;
-					}
-
-					// B: ROBUST: Cast any type of valid arg to int: '12', 12.3, etc. -> 12
-					opt.shadow.opacity = Number(opt.shadow.opacity)
-				}
-			}
+			correctShadowOptions(opt.shadow);
 
 			// STEP 3: Set props
 			gObjPptx.slides[slideNum].data[slideObjNum] = {};
